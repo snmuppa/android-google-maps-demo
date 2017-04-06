@@ -4,11 +4,14 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.IntentSender;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.location.Location;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.DialogFragment;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -21,8 +24,10 @@ import android.widget.EditText;
 import android.widget.Toast;
 
 import com.example.mapdemo.adapters.CustomWindowAdapter;
-import com.example.mapdemo.tests.PushTest;
+import com.example.mapdemo.receivers.MarkerUpdatesReceiver;
+import com.example.mapdemo.requests.PushRequest;
 import com.example.mapdemo.utils.MapUtils;
+import com.example.mapdemo.utils.PushUtil;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -39,94 +44,96 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.maps.android.ui.IconGenerator;
-import com.parse.ParsePush;
 
 import permissions.dispatcher.NeedsPermission;
 import permissions.dispatcher.RuntimePermissions;
 
 @RuntimePermissions
-public class MapDemoActivity extends AppCompatActivity implements
-		GoogleApiClient.ConnectionCallbacks,
-		GoogleApiClient.OnConnectionFailedListener,
-		LocationListener, GoogleMap.OnMapClickListener, GoogleMap.OnMapLongClickListener, GoogleMap.OnMarkerDragListener {
+public class MapDemoActivity extends AppCompatActivity implements MarkerUpdatesReceiver.PushInterface,
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener,
+        LocationListener, GoogleMap.OnMapClickListener, GoogleMap.OnMapLongClickListener, GoogleMap.OnMarkerDragListener {
 
-	private SupportMapFragment mapFragment;
-	private GoogleMap map;
-	private GoogleApiClient mGoogleApiClient;
-	private LocationRequest mLocationRequest;
-	private long UPDATE_INTERVAL = 60000;  /* 60 secs */
-	private long FASTEST_INTERVAL = 5000; /* 5 secs */
+    private SupportMapFragment mapFragment;
+    private GoogleMap map;
+    private GoogleApiClient mGoogleApiClient;
+    private LocationRequest mLocationRequest;
+    private long UPDATE_INTERVAL = 60000;  /* 60 secs */
+    private long FASTEST_INTERVAL = 5000; /* 5 secs */
 
-	final String CHANNEL_NAME = "android-2017";
+    final String CHANNEL_NAME = "android-2017";
 
-	/*
+    /*
 	 * Define a request code to send to Google Play services This code is
 	 * returned in Activity.onActivityResult
 	 */
-	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
+    private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		setContentView(R.layout.map_demo_activity);
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.map_demo_activity);
 
-		ParsePush.subscribeInBackground(CHANNEL_NAME);
+        //ParsePush.subscribeInBackground(CHANNEL_NAME);
 
-		if (TextUtils.isEmpty(getResources().getString(R.string.google_maps_api_key))) {
-			throw new IllegalStateException("You forgot to supply a Google Maps API key");
-		}
+        IntentFilter intentFilter = new IntentFilter("com.parse.push.intent.RECEIVE");
+        registerReceiver(new MarkerUpdatesReceiver(this), intentFilter);
 
-		mapFragment = ((SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map));
-		if (mapFragment != null) {
-			mapFragment.getMapAsync(new OnMapReadyCallback() {
+        if (TextUtils.isEmpty(getResources().getString(R.string.google_maps_api_key))) {
+            throw new IllegalStateException("You forgot to supply a Google Maps API key");
+        }
+
+        mapFragment = ((SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map));
+        if (mapFragment != null) {
+            mapFragment.getMapAsync(new OnMapReadyCallback() {
                 @Override
                 public void onMapReady(GoogleMap map) {
                     loadMap(map);
                 }
             });
-		} else {
-			Toast.makeText(this, "Error - Map Fragment was null!!", Toast.LENGTH_SHORT).show();
-		}
+        } else {
+            Toast.makeText(this, "Error - Map Fragment was null!!", Toast.LENGTH_SHORT).show();
+        }
 
-	}
+    }
 
     protected void loadMap(GoogleMap googleMap) {
         map = googleMap;
         if (map != null) {
             // Map is ready
             Toast.makeText(this, "Map Fragment was loaded properly!", Toast.LENGTH_SHORT).show();
-			MapDemoActivityPermissionsDispatcher.getMyLocationWithCheck(this);
+            MapDemoActivityPermissionsDispatcher.getMyLocationWithCheck(this);
 
-			map.setOnMapLongClickListener(MapDemoActivity.this);
+            map.setOnMapLongClickListener(MapDemoActivity.this);
 
-			map.setInfoWindowAdapter(new CustomWindowAdapter(getLayoutInflater()));
+            map.setInfoWindowAdapter(new CustomWindowAdapter(getLayoutInflater()));
 
-			map.setOnMarkerDragListener(MapDemoActivity.this);
+            map.setOnMarkerDragListener(MapDemoActivity.this);
 
-		} else {
+        } else {
             Toast.makeText(this, "Error - Map was null!!", Toast.LENGTH_SHORT).show();
         }
     }
 
-	@Override
-	public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-		super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-		MapDemoActivityPermissionsDispatcher.onRequestPermissionsResult(this, requestCode, grantResults);
-	}
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        MapDemoActivityPermissionsDispatcher.onRequestPermissionsResult(this, requestCode, grantResults);
+    }
 
-	@SuppressWarnings("all")
-	@NeedsPermission({Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION})
-	void getMyLocation() {
-		if (map != null) {
-			// Now that map has loaded, let's get our location!
-			map.setMyLocationEnabled(true);
-			mGoogleApiClient = new GoogleApiClient.Builder(this)
-					.addApi(LocationServices.API)
-					.addConnectionCallbacks(this)
-					.addOnConnectionFailedListener(this).build();
-			connectClient();
-		}
-	}
+    @SuppressWarnings("all")
+    @NeedsPermission({Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION})
+    void getMyLocation() {
+        if (map != null) {
+            // Now that map has loaded, let's get our location!
+            map.setMyLocationEnabled(true);
+            mGoogleApiClient = new GoogleApiClient.Builder(this)
+                    .addApi(LocationServices.API)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this).build();
+            connectClient();
+        }
+    }
 
     protected void connectClient() {
         // Connect the client.
@@ -147,90 +154,111 @@ public class MapDemoActivity extends AppCompatActivity implements
     /*
 	 * Called when the Activity is no longer visible.
 	 */
-	@Override
-	protected void onStop() {
-		// Disconnecting the client invalidates it.
+    @Override
+    protected void onStop() {
+        // Disconnecting the client invalidates it.
         if (mGoogleApiClient != null) {
             mGoogleApiClient.disconnect();
         }
-		super.onStop();
-	}
+        super.onStop();
+    }
 
-	/*
+    /*
 	 * Handle results returned to the FragmentActivity by Google Play services
 	 */
-	@Override
-	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		// Decide what to do based on the original request code
-		switch (requestCode) {
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        // Decide what to do based on the original request code
+        switch (requestCode) {
 
-		case CONNECTION_FAILURE_RESOLUTION_REQUEST:
+            case CONNECTION_FAILURE_RESOLUTION_REQUEST:
 			/*
 			 * If the result code is Activity.RESULT_OK, try to connect again
 			 */
-			switch (resultCode) {
-			case Activity.RESULT_OK:
-				mGoogleApiClient.connect();
-				break;
-			}
+                switch (resultCode) {
+                    case Activity.RESULT_OK:
+                        mGoogleApiClient.connect();
+                        break;
+                }
 
-		}
-	}
+        }
+    }
 
-	private boolean isGooglePlayServicesAvailable() {
-		// Check that Google Play services is available
-		int resultCode = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
-		// If Google Play services is available
-		if (ConnectionResult.SUCCESS == resultCode) {
-			// In debug mode, log the status
-			Log.d("Location Updates", "Google Play services is available.");
-			return true;
-		} else {
-			// Get the error dialog from Google Play services
-			Dialog errorDialog = GooglePlayServicesUtil.getErrorDialog(resultCode, this,
-					CONNECTION_FAILURE_RESOLUTION_REQUEST);
+    private boolean isGooglePlayServicesAvailable() {
+        // Check that Google Play services is available
+        int resultCode = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
+        // If Google Play services is available
+        if (ConnectionResult.SUCCESS == resultCode) {
+            // In debug mode, log the status
+            Log.d("Location Updates", "Google Play services is available.");
+            return true;
+        } else {
+            // Get the error dialog from Google Play services
+            Dialog errorDialog = GooglePlayServicesUtil.getErrorDialog(resultCode, this,
+                    CONNECTION_FAILURE_RESOLUTION_REQUEST);
 
-			// If Google Play services can provide an error dialog
-			if (errorDialog != null) {
-				// Create a new DialogFragment for the error dialog
-				ErrorDialogFragment errorFragment = new ErrorDialogFragment();
-				errorFragment.setDialog(errorDialog);
-				errorFragment.show(getSupportFragmentManager(), "Location Updates");
-			}
+            // If Google Play services can provide an error dialog
+            if (errorDialog != null) {
+                // Create a new DialogFragment for the error dialog
+                ErrorDialogFragment errorFragment = new ErrorDialogFragment();
+                errorFragment.setDialog(errorDialog);
+                errorFragment.show(getSupportFragmentManager(), "Location Updates");
+            }
 
-			return false;
-		}
-	}
+            return false;
+        }
+    }
 
-	/*
+    /*
 	 * Called by Location Services when the request to connect the client
 	 * finishes successfully. At this point, you can request the current
 	 * location or start periodic updates
 	 */
-	@Override
-	public void onConnected(Bundle dataBundle) {
-		// Display the connection status
-		Location location = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
-		if (location != null) {
-			Toast.makeText(this, "GPS location was found!", Toast.LENGTH_SHORT).show();
-			LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
-			CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(latLng, 17);
-			map.animateCamera(cameraUpdate);
+    @Override
+    public void onConnected(Bundle dataBundle) {
+        // Display the connection status
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        Location location = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+        if (location != null) {
+            Toast.makeText(this, "GPS location was found!", Toast.LENGTH_SHORT).show();
+            LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
+            CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(latLng, 17);
+            map.animateCamera(cameraUpdate);
         } else {
-			Toast.makeText(this, "Current location was null, enable GPS on emulator!", Toast.LENGTH_SHORT).show();
-		}
-		startLocationUpdates();
-	}
+            Toast.makeText(this, "Current location was null, enable GPS on emulator!", Toast.LENGTH_SHORT).show();
+        }
+        startLocationUpdates();
+    }
 
     protected void startLocationUpdates() {
         mLocationRequest = new LocationRequest();
         mLocationRequest.setPriority(LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY);
         mLocationRequest.setInterval(UPDATE_INTERVAL);
         mLocationRequest.setFastestInterval(FASTEST_INTERVAL);
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
         LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient,
                 mLocationRequest, this);
     }
 
+    @Override
     public void onLocationChanged(Location location) {
         // Report to the UI that the location was updated
         String msg = "Updated Location: " +
@@ -294,7 +322,7 @@ public class MapDemoActivity extends AppCompatActivity implements
 		Toast.makeText(getApplicationContext(), "Long Press", Toast.LENGTH_LONG).show();
 
 		//Test parse
-		PushTest.sendPushTest();
+		//PushTest.sendPushTest();
 
 		// Custom code here...
 		// Display the alert dialog
@@ -360,6 +388,9 @@ public class MapDemoActivity extends AppCompatActivity implements
 						// --> Call the dropPinEffect method here
 						dropPinEffect(marker);
 
+                        //send push noitification when new pin is dropped
+                        PushUtil.sendPushNotification(marker, CHANNEL_NAME);
+
 					}
 				});
 
@@ -418,6 +449,13 @@ public class MapDemoActivity extends AppCompatActivity implements
 
 	@Override
 	public void onMarkerDragEnd(Marker marker) {
+        //send push noitification on drag end
+        PushUtil.sendPushNotification(marker, CHANNEL_NAME);
+	}
+
+	// handle push notification data here
+	@Override
+	public void onMarkerUpdate(PushRequest pushRequest) {
 
 	}
 
