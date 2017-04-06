@@ -1,5 +1,28 @@
 package com.example.mapdemo;
 
+import android.app.Activity;
+import android.app.Dialog;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.IntentSender;
+import android.graphics.Bitmap;
+import android.location.Location;
+import android.os.Bundle;
+import android.os.SystemClock;
+import android.support.v4.app.DialogFragment;
+import android.support.v7.app.AlertDialog;
+import android.support.v7.app.AppCompatActivity;
+import android.text.TextUtils;
+import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.animation.BounceInterpolator;
+import android.widget.EditText;
+import android.widget.Toast;
+
+import com.example.mapdemo.adapters.CustomWindowAdapter;
+import com.example.mapdemo.tests.PushTest;
+import com.example.mapdemo.utils.MapUtils;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -11,19 +34,12 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptor;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
-
-import android.app.Activity;
-import android.app.Dialog;
-import android.content.Intent;
-import android.content.IntentSender;
-import android.location.Location;
-import android.os.Bundle;
-import android.support.v4.app.DialogFragment;
-import android.support.v7.app.AppCompatActivity;
-import android.text.TextUtils;
-import android.util.Log;
-import android.widget.Toast;
+import com.google.android.gms.maps.model.Marker;
+import com.google.maps.android.ui.IconGenerator;
+import com.parse.ParsePush;
 
 import permissions.dispatcher.NeedsPermission;
 import permissions.dispatcher.RuntimePermissions;
@@ -32,7 +48,7 @@ import permissions.dispatcher.RuntimePermissions;
 public class MapDemoActivity extends AppCompatActivity implements
 		GoogleApiClient.ConnectionCallbacks,
 		GoogleApiClient.OnConnectionFailedListener,
-		LocationListener {
+		LocationListener, GoogleMap.OnMapClickListener, GoogleMap.OnMapLongClickListener, GoogleMap.OnMarkerDragListener {
 
 	private SupportMapFragment mapFragment;
 	private GoogleMap map;
@@ -40,6 +56,8 @@ public class MapDemoActivity extends AppCompatActivity implements
 	private LocationRequest mLocationRequest;
 	private long UPDATE_INTERVAL = 60000;  /* 60 secs */
 	private long FASTEST_INTERVAL = 5000; /* 5 secs */
+
+	final String CHANNEL_NAME = "android-2017";
 
 	/*
 	 * Define a request code to send to Google Play services This code is
@@ -51,6 +69,8 @@ public class MapDemoActivity extends AppCompatActivity implements
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.map_demo_activity);
+
+		ParsePush.subscribeInBackground(CHANNEL_NAME);
 
 		if (TextUtils.isEmpty(getResources().getString(R.string.google_maps_api_key))) {
 			throw new IllegalStateException("You forgot to supply a Google Maps API key");
@@ -76,7 +96,14 @@ public class MapDemoActivity extends AppCompatActivity implements
             // Map is ready
             Toast.makeText(this, "Map Fragment was loaded properly!", Toast.LENGTH_SHORT).show();
 			MapDemoActivityPermissionsDispatcher.getMyLocationWithCheck(this);
-        } else {
+
+			map.setOnMapLongClickListener(MapDemoActivity.this);
+
+			map.setInfoWindowAdapter(new CustomWindowAdapter(getLayoutInflater()));
+
+			map.setOnMarkerDragListener(MapDemoActivity.this);
+
+		} else {
             Toast.makeText(this, "Error - Map was null!!", Toast.LENGTH_SHORT).show();
         }
     }
@@ -254,6 +281,147 @@ public class MapDemoActivity extends AppCompatActivity implements
 					"Sorry. Location services not available to you", Toast.LENGTH_LONG).show();
 		}
 	}
+
+	//fires when a regular press happens
+	@Override
+	public void onMapClick(LatLng latLng) {
+		Toast.makeText(this, "Regular Press", Toast.LENGTH_LONG).show();
+	}
+
+	//fires when a long press happens
+	@Override
+	public void onMapLongClick(LatLng latLng) {
+		Toast.makeText(getApplicationContext(), "Long Press", Toast.LENGTH_LONG).show();
+
+		//Test parse
+		PushTest.sendPushTest();
+
+		// Custom code here...
+		// Display the alert dialog
+		showAlertDialogForPoint(latLng);
+
+	}
+
+
+	// Display the alert that adds the marker
+	private void showAlertDialogForPoint(final LatLng point) {
+		// inflate message_item.xml view
+		View messageView = LayoutInflater.from(MapDemoActivity.this).
+				inflate(R.layout.message_item, null);
+
+		// Create alert dialog builder
+		AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
+
+		// set message_item.xml to AlertDialog builder
+		alertDialogBuilder.setView(messageView);
+
+		// Create alert dialog
+		final AlertDialog alertDialog = alertDialogBuilder.create();
+
+		// Configure dialog button (OK)
+		alertDialog.setButton(DialogInterface.BUTTON_POSITIVE, "OK",
+				new DialogInterface.OnClickListener() {
+					@Override
+					public void onClick(DialogInterface dialog, int which) {
+						// Define color of marker icon
+						//BitmapDescriptor defaultMarker =
+						//		BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN);
+
+
+						// Extract content from alert dialog
+						String title = ((EditText) alertDialog.findViewById(R.id.etTitle)).
+								getText().toString();
+						String snippet = ((EditText) alertDialog.findViewById(R.id.etSnippet)).
+								getText().toString();
+
+						IconGenerator iconGenerator = new IconGenerator(MapDemoActivity.this);
+
+						// Possible color options:
+						// STYLE_WHITE, STYLE_RED, STYLE_BLUE, STYLE_GREEN, STYLE_PURPLE, STYLE_ORANGE
+						iconGenerator.setStyle(IconGenerator.STYLE_GREEN);
+						// Swap text here to live inside speech bubble
+						Bitmap bitmap = iconGenerator.makeIcon(title);
+						// Use BitmapDescriptorFactory to create the marker
+						BitmapDescriptor icon = BitmapDescriptorFactory.fromBitmap(bitmap);
+
+
+						// Creates and adds marker to the map
+						//Marker marker = map.addMarker(new MarkerOptions()
+						//		.position(point)
+						//		.title(title)
+						//		.snippet(snippet)
+						//		.icon(icon));
+
+						//marker.setDraggable(true);
+
+						Marker marker = MapUtils.addMarker(map, point, title, snippet, icon);
+
+						// Animate marker using drop effect
+						// --> Call the dropPinEffect method here
+						dropPinEffect(marker);
+
+					}
+				});
+
+		// Configure dialog button (Cancel)
+		alertDialog.setButton(DialogInterface.BUTTON_NEGATIVE, "Cancel",
+				new DialogInterface.OnClickListener() {
+					public void onClick(DialogInterface dialog, int id) { dialog.cancel(); }
+				});
+
+		// Display the dialog
+		alertDialog.show();
+	}
+
+	private void dropPinEffect(final Marker marker) {
+		// Handler allows us to repeat a code block after a specified delay
+		final android.os.Handler handler = new android.os.Handler();
+		final long start = SystemClock.uptimeMillis();
+		final long duration = 1500;
+
+		// Use the bounce interpolator
+		final android.view.animation.Interpolator interpolator =
+				new BounceInterpolator();
+
+		// Animate marker with a bounce updating its position every 15ms
+		handler.post(new Runnable() {
+			@Override
+			public void run() {
+				long elapsed = SystemClock.uptimeMillis() - start;
+				// Calculate t for bounce based on elapsed time
+				float t = Math.max(
+						1 - interpolator.getInterpolation((float) elapsed
+								/ duration), 0);
+				// Set the anchor
+				marker.setAnchor(0.5f, 1.0f + 14 * t);
+
+				if (t > 0.0) {
+					// Post this event again 15ms from now.
+					handler.postDelayed(this, 15);
+				} else { // done elapsing, show window
+					marker.showInfoWindow();
+				}
+			}
+		});
+	}
+
+	//Marker Drag listener events
+	@Override
+	public void onMarkerDragStart(Marker marker) {
+
+	}
+
+	@Override
+	public void onMarkerDrag(Marker marker) {
+
+	}
+
+	@Override
+	public void onMarkerDragEnd(Marker marker) {
+
+	}
+
+	//end Marker Drag listener events
 
 	// Define a DialogFragment that displays the error dialog
 	public static class ErrorDialogFragment extends DialogFragment {

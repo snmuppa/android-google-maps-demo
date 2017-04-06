@@ -17,11 +17,22 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
+
+
+    <!-- 'com.example.mapdemo' is the package name declared above.  -->
+    <permission android:name="${packageName}.permission.C2D_MESSAGE" android:protectionLevel="signature" />
+    <uses-permission android:name="${packageName}.permission.C2D_MESSAGE" />
+
     <uses-feature
         android:glEsVersion="0x00020000"
         android:required="true" />
 
     <application
+        android:name=".MapApplication"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
@@ -45,6 +56,34 @@
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
+
+        <!-- Add this INSIDE the application node... -->
+        <meta-data android:name="com.parse.push.gcm_sender_id"
+            android:value="@string/gcm_sender_id"/>
+
+        <!-- add a Gcm Broadcast receiver for handling GCM messages -->
+        <receiver android:name="com.parse.GcmBroadcastReceiver"
+            android:permission="com.google.android.c2dm.permission.SEND">
+            <intent-filter>
+                <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+                <action android:name="com.google.android.c2dm.intent.REGISTRATION" />
+
+                <!-- Package Name -->
+                <category android:name="${packageName}" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Declare the Push service and a Parse-specific broadcast receiver -->
+        <service android:name="com.parse.PushService" />
+        <receiver android:name="com.parse.ParsePushBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.parse.push.intent.RECEIVE" />
+                <action android:name="com.parse.push.intent.DELETE" />
+                <action android:name="com.parse.push.intent.OPEN" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
